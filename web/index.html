@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>RFID Top-Up Dashboard</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #f0f0f0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            margin: 0;
+        }
+        .container {
+            background-color: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 0 10px rgba(0,0,0,0.1);
+            text-align: center;
+            max-width: 400px;
+            width: 100%;
+        }
+        h1 {
+            color: #333;
+        }
+        .status {
+            margin: 10px 0;
+            font-weight: bold;
+            color: #007bff;
+        }
+        .card-info {
+            margin: 10px 0;
+            font-size: 16px;
+        }
+        label {
+            display: block;
+            margin: 10px 0 5px;
+        }
+        input {
+            padding: 8px;
+            margin-bottom: 10px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            width: calc(100% - 18px);
+            box-sizing: border-box;
+        }
+        button {
+            padding: 10px 20px;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+            width: 100%;
+        }
+        button:hover {
+            background-color: #45a049;
+        }
+        button:disabled {
+            background-color: #ccc;
+            cursor: not-allowed;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>RFID Card Top-Up Dashboard</h1>
+        <div id="status" class="status">Waiting for card...</div>
+        <div id="card-info" class="card-info" style="display: none;">
+            <strong>UID:</strong> <span id="uid-display"></span><br>
+            <strong>Balance:</strong> <span id="balance-display"></span> RWF
+        </div>
+        <label for="amount">Top-Up Amount (RWF):</label>
+        <input type="number" id="amount" min="0">
+        <button id="topup-btn" onclick="topup()" disabled>Top Up</button>
+    </div>
+    <script src="https://cdn.socket.io/4.0.1/socket.io.min.js"></script>
+    <script>
+        const socket = io('http://localhost:5000'); // adjust for actual host
+        const statusEl = document.getElementById('status');
+        const cardInfoEl = document.getElementById('card-info');
+        const uidDisplay = document.getElementById('uid-display');
+        const balanceDisplay = document.getElementById('balance-display');
+        const amountInput = document.getElementById('amount');
+        const topupBtn = document.getElementById('topup-btn');
+
+        let currentUid = null;
+
+        socket.on('card_status', (data) => {
+            currentUid = data.uid;
+            uidDisplay.textContent = data.uid;
+            balanceDisplay.textContent = data.balance;
+            cardInfoEl.style.display = 'block';
+            statusEl.textContent = 'Card detected. Enter amount and top up.';
+            topupBtn.disabled = false;
+        });
+
+        socket.on('balance_update', (data) => {
+            if (data.uid === currentUid) {
+                balanceDisplay.textContent = data.new_balance;
+                statusEl.textContent = 'Top-up successful! New balance updated.';
+            }
+        });
+
+        function topup() {
+            const amount = parseInt(amountInput.value);
+            if (!currentUid || !amount || amount <= 0) {
+                alert('Please ensure card is detected and amount is valid.');
+                return;
+            }
+            statusEl.textContent = 'Processing top-up...';
+            topupBtn.disabled = true;
+            console.log('Sending topup request:', { uid: currentUid, amount });
+            fetch('http://localhost:5000/topup', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({uid: currentUid, amount})
+            }).then(res => {
+                console.log('Fetch response status:', res.status);
+                return res.json();
+            }).then(data => {
+                console.log('Response data:', data);
+                if (data.status === 'topup requested') {
+                    statusEl.textContent = 'Top-up requested. Waiting for confirmation...';
+                } else {
+                    statusEl.textContent = 'Error: ' + data.status;
+                    topupBtn.disabled = false;
+                }
+            }).catch(err => {
+                console.log('Fetch error:', err);
+                statusEl.textContent = 'Error: ' + err.message;
+                topupBtn.disabled = false;
+            });
+        }
+    </script>
+</body>
+</html>
