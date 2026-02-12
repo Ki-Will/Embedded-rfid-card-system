@@ -31,6 +31,32 @@ BALANCE_BLOCK = 8
 # Global balances dict for memory persistence
 balances = {}
 
+# Load balances from file
+def load_balances():
+    try:
+        with open('balances.json', 'r') as f:
+            data = ujson.load(f)
+            print('Loaded balances:', data)
+            return data
+    except:
+        print('No balances file, starting empty')
+        return {}
+
+# Save balances to file
+def save_balances():
+    try:
+        with open('balances.json', 'w') as f:
+            ujson.dump(balances, f)
+            print('Saved balances:', balances)
+    except Exception as e:
+        print('Error saving balances:', e)
+
+# Load balances on boot
+balances = load_balances()
+
+# Last scan time for rate limiting
+last_scan_time = 0
+
 # ---------------- WIFI ----------------
 def connect_wifi():
     print('Connecting to WiFi...')
@@ -84,6 +110,7 @@ def write_balance(uid, balance):
     print(f'Balance written for {uid}')
     # Store in memory for persistence
     balances[uid] = balance
+    save_balances()
 
 
 # ---------------- RFID READ ----------------
@@ -137,6 +164,10 @@ current_balance = 0
 
 
 while True:
+    if time.time() - last_scan_time < 7:
+        time.sleep(0.1)
+        continue
+
     (stat, tag_type) = rdr.request(rdr.REQIDL)
 
     if stat == rdr.OK:
@@ -145,24 +176,19 @@ while True:
         if stat == rdr.OK:
             uid_str = ''.join('%02X' % x for x in uid)
 
-            if uid_str != current_uid:
-                current_uid = uid_str
-
-                try:
-                    current_balance = read_balance(uid_str)
-
-                    payload = ujson.dumps({
-                        'uid': uid_str,
-                        'balance': current_balance
-                    })
-
-                    client.publish(TOPIC_STATUS, payload)
-
-                    print(f'Published status: {payload}')
-                    print(f'Card detected: {uid_str}, balance: {current_balance}')
-
-                except Exception as e:
-                    print(f'Error reading card {uid_str}: {e}')
+            current_uid = uid_str
+            try:
+                current_balance = read_balance(uid_str)
+                payload = ujson.dumps({
+                    'uid': uid_str,
+                    'balance': current_balance
+                })
+                client.publish(TOPIC_STATUS, payload)
+                print(f'Published status: {payload}')
+                print(f'Card detected: {uid_str}, balance: {current_balance}')
+                last_scan_time = time.time()
+            except Exception as e:
+                print(f'Error processing card {uid_str}: {e}')
 
     client.check_msg()
     time.sleep(0.1)

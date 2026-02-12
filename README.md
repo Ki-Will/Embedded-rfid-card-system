@@ -34,9 +34,19 @@ Located in `esp8266/main.py`.
 
 **Note**: Update WiFi credentials in `main.py`.
 
-### Backend (Python Flask)
+### Backend (Node.js or Python)
 
-Located in `backend/app.py`.
+**Node.js Backend** (located in `backend/server.js`):
+
+- Exposes `POST /topup` endpoint.
+- Uses MQTT.js for MQTT communication.
+- Uses Socket.IO for WebSocket.
+
+**Requirements**: `npm install`
+
+Run: `cd backend && npm start`
+
+**Python Backend** (located in `backend/app.py`):
 
 - Exposes `POST /topup` endpoint.
 - Uses Paho MQTT for communication.
@@ -44,7 +54,21 @@ Located in `backend/app.py`.
 
 **Requirements**: `pip install -r backend/requirements.txt`
 
-Run: `python backend/app.py`
+Run: `cd backend && python app.py`
+
+Both backends run on port 5000 by default.
+
+### Configuration
+
+Create a `.env` file in the `backend` directory to configure the port:
+
+```env
+PORT=5000
+```
+
+This sets the backend port. If not set, defaults to 5000.
+
+Note: `.env` is gitignored.
 
 ### Web Dashboard
 
@@ -53,6 +77,8 @@ Located in `web/index.html`.
 - Simple HTML/JS interface.
 - Uses Socket.IO for WebSocket connection.
 - Fetches to backend for top-up requests.
+
+Serve using a web server (e.g., `cd web && python -m http.server 8000`).
 
 ## Setup Instructions
 

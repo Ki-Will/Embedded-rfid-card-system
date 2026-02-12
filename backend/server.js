@@ -4,6 +4,37 @@ const server = require('http').createServer(app);
 const io = require('socket.io')(server, { cors: { origin: "*" } });
 const mqtt = require('mqtt');
 const cors = require('cors');
+const { Client } = require('pg');
+
+require('dotenv').config();
+
+const dbClient = new Client({ connectionString: process.env.DATABASE_URL });
+
+dbClient.connect((err) => {
+    if (err) {
+        console.error('Database connection error:', err);
+    } else {
+        console.log('Database connected');
+        // Create tables if not exist
+        dbClient.query(`
+            CREATE TABLE IF NOT EXISTS cards (
+                uid VARCHAR(255) PRIMARY KEY,
+                balance INTEGER DEFAULT 0,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+            CREATE TABLE IF NOT EXISTS transactions (
+                id SERIAL PRIMARY KEY,
+                uid VARCHAR(255),
+                amount INTEGER,
+                timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+        `, (err) => {
+            if (err) console.error('Table creation error:', err);
+            else console.log('Tables ready');
+        });
+    }
+});
 
 const TEAM_ID = 'Abanshonji';
 const TOPIC_STATUS = `rfid/${TEAM_ID}/card/status`;
@@ -49,9 +80,37 @@ client.on('message', (topic, message) => {
         if (topic === TOPIC_STATUS) {
             io.emit('card_status', data);
             console.log('Emitted card_status to WebSocket:', data);
+            // Upsert card
+            dbClient.query(`
+                INSERT INTO cards (uid, balance, updated_at) VALUES ($1, $2, CURRENT_TIMESTAMP)
+                ON CONFLICT (uid) DO UPDATE SET balance = EXCLUDED.balance, updated_at = CURRENT_TIMESTAMP
+            `, [data.uid, data.balance], (err) => {
+                if (err) console.error('DB upsert card error:', err);
+                else console.log('Card upserted:', data.uid, data.balance);
+            });
         } else if (topic === TOPIC_BALANCE) {
             io.emit('balance_update', data);
             console.log('Emitted balance_update to WebSocket:', data);
+            // Update balance and insert transaction
+            dbClient.query('SELECT balance FROM cards WHERE uid = $1', [data.uid], (err, res) => {
+                if (err) console.error('DB select old balance error:', err);
+                else {
+                    const old_balance = res.rows[0]?.balance || 0;
+                    const amount = data.new_balance - old_balance;
+                    dbClient.query(`
+                        UPDATE cards SET balance = $1, updated_at = CURRENT_TIMESTAMP WHERE uid = $2
+                    `, [data.new_balance, data.uid], (err) => {
+                        if (err) console.error('DB update balance error:', err);
+                        else console.log('Balance updated:', data.uid, data.new_balance);
+                    });
+                    dbClient.query(`
+                        INSERT INTO transactions (uid, amount) VALUES ($1, $2)
+                    `, [data.uid, amount], (err) => {
+                        if (err) console.error('DB insert transaction error:', err);
+                        else console.log('Transaction inserted for', data.uid, 'amount:', amount);
+                    });
+                }
+            });
         }
     } catch (e) {
         console.log('Error parsing MQTT message:', e);
@@ -93,6 +152,6 @@ io.on('connection', (socket) => {
     });
 });
 
-server.listen(5000, () => {
-    console.log('HTTP/WebSocket server running on port 5000');
+server.listen(process.env.PORT || 5000, () => {
+    console.log('HTTP/WebSocket server running on port', process.env.PORT || 5000);
 });
